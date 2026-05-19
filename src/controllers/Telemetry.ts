@@ -120,10 +120,6 @@ export const postTelemetry = async (req: Request, res: Response) => {
         expiration: now + CACHE_DURATION,
       };
       deviceCache[id] = cachedDevice;
-
-      console.log(
-        `[TELEMETRY] Cache updated for device: ${id} (Plan: ${cachedDevice.plan})`,
-      );
     }
 
     // Validar desde cache

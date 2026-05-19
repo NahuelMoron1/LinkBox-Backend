@@ -588,10 +588,6 @@ export const completeRecordingSession = async (req: Request, res: Response) => {
       end_time: new Date(),
     });
 
-    console.log(
-      `[ULTIMATE] Recording session completed by client: ${session.getDataValue("id")}`,
-    );
-
     return res.status(200).json({
       message: "Recording session completed",
       sessionId: session.getDataValue("id"),

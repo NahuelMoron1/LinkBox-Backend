@@ -13,8 +13,6 @@ export const validateSubscription = async (
   try {
     const { key } = req.query;
 
-    console.log("KEY: ", req.query.key);
-
     if (!key) {
       return res.status(400).json({ message: "Device key is required" });
     }

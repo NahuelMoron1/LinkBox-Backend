@@ -1,5 +1,5 @@
-import express from "express";
 import { exec } from "child_process";
+import express from "express";
 import {
   GITHUB_TOKEN,
   GITHUB_USERNAME,
@@ -14,9 +14,10 @@ router.post("/github-webhook", (req, res) => {
   // Opcional: validar el secret si lo pusiste en GitHub
   console.log("FE Webhook recibido de GitHub");
 
-  const data = typeof req.body.payload === 'string' 
-  ? JSON.parse(req.body.payload) 
-  : req.body;
+  const data =
+    typeof req.body.payload === "string"
+      ? JSON.parse(req.body.payload)
+      : req.body;
 
   const commitMessage = data.head_commit?.message || "No commit message";
   const committerName = data.head_commit?.author?.name || "Unknown";
@@ -28,33 +29,33 @@ router.post("/github-webhook", (req, res) => {
         text: {
           type: "plain_text",
           text: "🚀 Deployment Successful For Paddock1Game Public Frontend Site",
-          emoji: true
-        }
+          emoji: true,
+        },
       },
       {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: "*Project:* `Paddock1Game - Frontend`"
-        }
+          text: "*Project:* `Paddock1Game - Frontend`",
+        },
       },
       {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `*Latest Commit:*\n> ${commitMessage}`
-        }
+          text: `*Latest Commit:*\n> ${commitMessage}`,
+        },
       },
       {
         type: "context",
         elements: [
           {
             type: "mrkdwn",
-            text: `👤 *Author:* ${committerName}  |  📅 *Status:* Finished`
-          }
-        ]
-      }
-    ]
+            text: `👤 *Author:* ${committerName}  |  📅 *Status:* Finished`,
+          },
+        ],
+      },
+    ],
   };
 
   const errorPayload = {
@@ -64,30 +65,30 @@ router.post("/github-webhook", (req, res) => {
         text: {
           type: "plain_text",
           text: "❌ Deployment Failed For Paddock1Game Public Frontend Site",
-          emoji: true
-        }
+          emoji: true,
+        },
       },
       {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: "*Attention:* The build process for `Paddock1Game` has failed."
-        }
+          text: "*Attention:* The build process for `Paddock1Game` has failed.",
+        },
       },
       {
         type: "section",
         fields: [
           {
             type: "mrkdwn",
-            text: `*Commit:*\n${commitMessage}`
+            text: `*Commit:*\n${commitMessage}`,
           },
           {
             type: "mrkdwn",
-            text: `*Reason:*\nCheck server logs for details.`
-          }
-        ]
-      }
-    ]
+            text: `*Reason:*\nCheck server logs for details.`,
+          },
+        ],
+      },
+    ],
   };
 
   // Comando para acceder al sitio estático desde el servidor backend
@@ -109,7 +110,6 @@ router.post("/github-webhook", (req, res) => {
     }
 
     if (stdout.includes("FE Deploy realizado correctamente")) {
-      console.log("BEFORE SLACK");
       fetch(SLACK_FRONTEND_STATUS, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
