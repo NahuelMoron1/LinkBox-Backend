@@ -43,16 +43,11 @@ class Server {
 
   sockets() {
     this.io.on("connection", (socket) => {
-      console.log("Cliente conectado:", socket.id);
-
       socket.on("joinRoom", (deviceKey: string) => {
         socket.join(deviceKey);
-        console.log(`Socket ${socket.id} se unió a la sala: ${deviceKey}`);
       });
 
-      socket.on("disconnect", () => {
-        console.log("Cliente desconectado");
-      });
+      socket.on("disconnect", () => {});
     });
 
     this.app.set("socketio", this.io);
