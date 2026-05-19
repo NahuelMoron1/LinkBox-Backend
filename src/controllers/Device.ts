@@ -466,3 +466,138 @@ export const getPlanInfo = async (req: Request, res: Response) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+
+/**
+ * GET /api/devices/:deviceId/recording-session
+ * Obtener la sesión en grabación actual con toda su telemetría
+ * Solo para Plan Ultimate
+ */
+export const getCurrentRecordingSession = async (
+  req: Request,
+  res: Response,
+) => {
+  const { deviceId } = req.params;
+
+  try {
+    const device = await Device.findByPk(deviceId);
+
+    if (!device) {
+      return res.status(404).json({ message: "Device not found" });
+    }
+
+    const plan = device.getDataValue("plan");
+
+    // Solo Ultimate
+    if (plan !== "ultimate") {
+      return res.status(403).json({
+        message: "This feature is only available for Ultimate plan",
+        code: "PLAN_UPGRADE_REQUIRED",
+      });
+    }
+
+    // Buscar sesión en recording
+    const session = await TelemetrySession.findOne({
+      where: {
+        device_id: deviceId,
+        status: "recording",
+      },
+    });
+
+    if (!session) {
+      // No hay sesión activa
+      return res.status(200).json({
+        session: null,
+        data: [],
+      });
+    }
+
+    // Obtener toda la telemetría de la sesión
+    const data = await TelemetryData.findAll({
+      where: { session_id: session.getDataValue("id") },
+      order: [["timestamp", "ASC"]],
+      attributes: [
+        "id",
+        "rpm",
+        "water_temp",
+        "oil_temp",
+        "oil_press",
+        "fuel_press",
+        "sonda",
+        "gear",
+        "timestamp",
+      ],
+    });
+
+    return res.status(200).json({
+      session: {
+        id: session.getDataValue("id"),
+        name: session.getDataValue("session_name"),
+        startTime: session.getDataValue("start_time"),
+        endTime: session.getDataValue("end_time"),
+        totalRecords: session.getDataValue("total_records"),
+        status: session.getDataValue("status"),
+      },
+      data: data,
+    });
+  } catch (error) {
+    console.error("[GET RECORDING SESSION ERROR]", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+/**
+ * POST /api/devices/:deviceId/recording-session/complete
+ * Completar la sesión en grabación (llamado cuando el cliente detecta inactividad)
+ * Solo para Plan Ultimate
+ */
+export const completeRecordingSession = async (req: Request, res: Response) => {
+  const { deviceId } = req.params;
+
+  try {
+    const device = await Device.findByPk(deviceId);
+
+    if (!device) {
+      return res.status(404).json({ message: "Device not found" });
+    }
+
+    const plan = device.getDataValue("plan");
+
+    if (plan !== "ultimate") {
+      return res.status(403).json({
+        message: "This feature is only available for Ultimate plan",
+      });
+    }
+
+    // Encontrar y completar la sesión en recording
+    const session = await TelemetrySession.findOne({
+      where: {
+        device_id: deviceId,
+        status: "recording",
+      },
+    });
+
+    if (!session) {
+      return res.status(200).json({
+        message: "No active recording session to complete",
+      });
+    }
+
+    // Marcar como completed
+    await session.update({
+      status: "completed",
+      end_time: new Date(),
+    });
+
+    console.log(
+      `[ULTIMATE] Recording session completed by client: ${session.getDataValue("id")}`,
+    );
+
+    return res.status(200).json({
+      message: "Recording session completed",
+      sessionId: session.getDataValue("id"),
+    });
+  } catch (error) {
+    console.error("[COMPLETE RECORDING SESSION ERROR]", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};

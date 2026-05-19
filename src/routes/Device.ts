@@ -1,6 +1,8 @@
 import { Router } from "express";
 import {
+  completeRecordingSession,
   deleteSession,
+  getCurrentRecordingSession,
   getDeviceSessions,
   getPlanInfo,
   getSessionData,
@@ -24,6 +26,16 @@ router.post("/telemetry", validateSubscription, postTelemetry);
 
 // Plan & Sessions
 router.get("/:deviceId/sessions", validateSubscription, getDeviceSessions);
+router.get(
+  "/:deviceId/recording-session",
+  validateSubscription,
+  getCurrentRecordingSession,
+);
+router.post(
+  "/:deviceId/recording-session/complete",
+  validateSubscription,
+  completeRecordingSession,
+);
 router.get("/sessions/:sessionId/data", validateSubscription, getSessionData);
 router.post("/:deviceId/sessions/save", validateSubscription, saveSession);
 router.delete("/sessions/:sessionId", validateSubscription, deleteSession);
