@@ -67,10 +67,17 @@ const TELEMETRY_RANGES: Record<string, [number, number]> = {
   oil_temp:   [-50, 200],
   oil_press:  [0, 200],
   fuel_press: [0, 100],
-  sonda:      [0, 5],
-  gear:       [0, 8],
+  sonda:      [0, 30],   // AFR: ~9–22 for gasoline; lambda: 0.5–2. 0–30 covers any sensor
+  gear:       [0, 10],
 };
 
+/**
+ * Sanitises telemetry data in-place:
+ * - Fields that are missing/null are kept as-is (null → stored as null).
+ * - Fields whose numeric value falls outside TELEMETRY_RANGES are set to null
+ *   so the rest of the payload is still processed (no hard rejection).
+ * Returns false only if `data` is not a plain object at all.
+ */
 const validateTelemetryData = (data: any): { valid: boolean; error?: string } => {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     return { valid: false, error: "data must be a plain object" };
@@ -81,7 +88,9 @@ const validateTelemetryData = (data: any): { valid: boolean; error?: string } =>
     if (val === undefined || val === null) continue;
     const num = Number(val);
     if (isNaN(num) || num < min || num > max) {
-      return { valid: false, error: `Invalid ${field}: ${val} (expected ${min}–${max})` };
+      // Nullify the bad field instead of rejecting the whole payload
+      console.warn(`[Telemetry] Out-of-range ${field}: ${val} (expected ${min}–${max}) — field set to null`);
+      data[field] = null;
     }
   }
 
