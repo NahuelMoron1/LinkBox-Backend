@@ -1,7 +1,10 @@
 import cookieParser from "cookie-parser";
 import cors from "cors";
+import rateLimit from "express-rate-limit";
 import express, { Application, Request, Response } from "express";
+import helmet from "helmet";
 import http from "http";
+import jwt from "jsonwebtoken";
 import morgan from "morgan";
 import { Server as SocketServer } from "socket.io";
 
@@ -10,7 +13,7 @@ import deviceRouter from "../routes/Device";
 
 // Database
 import db from "../db/connection";
-import { ALLOWED_ORIGINS, DB_NAME, MAINTENANCE, PORT } from "./config";
+import { ALLOWED_ORIGINS, DB_NAME, MAINTENANCE, PORT, SECRET_JWT_KEY } from "./config";
 
 // Models - Ensure proper initialization
 
@@ -42,9 +45,31 @@ class Server {
   }
 
   sockets() {
+    this.io.use((socket, next) => {
+      const cookieStr = socket.handshake.headers.cookie || "";
+      const match = cookieStr.match(/(?:^|;\s*)access_token=([^;]+)/);
+      const token = match ? decodeURIComponent(match[1]) : null;
+
+      if (!token) {
+        return next(new Error("Authentication required"));
+      }
+
+      try {
+        const decoded = jwt.verify(token, SECRET_JWT_KEY) as any;
+        socket.data.deviceId = decoded.id;
+        next();
+      } catch {
+        next(new Error("Invalid or expired token"));
+      }
+    });
+
     this.io.on("connection", (socket) => {
-      socket.on("joinRoom", (deviceKey: string) => {
-        socket.join(deviceKey);
+      socket.on("joinRoom", (roomKey: string) => {
+        if (socket.data.deviceId === roomKey) {
+          socket.join(roomKey);
+        } else {
+          socket.emit("unauthorized", { message: "You can only join your own room" });
+        }
       });
 
       socket.on("disconnect", () => {});
@@ -60,7 +85,12 @@ class Server {
   }
 
   middlewares() {
-    this.app.use(express.json());
+    // Security headers
+    this.app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
+
+    // Body size limit — previene payloads gigantes
+    this.app.use(express.json({ limit: "16kb" }));
+
     this.app.use(morgan("dev"));
     this.app.use(
       cors({
@@ -70,6 +100,26 @@ class Server {
       }),
     );
     this.app.use(cookieParser());
+
+    // Rate limiting en login: máx 10 intentos por IP por 15 minutos
+    const loginLimiter = rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 10,
+      message: { message: "Too many login attempts, please try again in 15 minutes" },
+      standardHeaders: true,
+      legacyHeaders: false,
+    });
+    this.app.use("/api/devices/login", loginLimiter);
+
+    // Rate limiting en telemetría: máx 30 req/seg por IP (100ms * 10 dispositivos)
+    const telemetryLimiter = rateLimit({
+      windowMs: 1000,
+      max: 30,
+      message: { message: "Telemetry rate limit exceeded" },
+      standardHeaders: true,
+      legacyHeaders: false,
+    });
+    this.app.use("/api/devices/telemetry", telemetryLimiter);
   }
 
   routes() {

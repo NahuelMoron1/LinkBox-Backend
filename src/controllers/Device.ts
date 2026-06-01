@@ -1,3 +1,4 @@
+import bcrypt from "bcrypt";
 import { Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import { DOMAIN, SECRET_JWT_KEY } from "../models/config";
@@ -19,7 +20,12 @@ export const loginDevice = async (req: Request, res: Response) => {
       where: { device_key: key },
     });
 
-    if (!device || device.getDataValue("password") !== password) {
+    const storedHash = device?.getDataValue("password");
+    const isValidPassword = storedHash
+      ? await bcrypt.compare(password, storedHash)
+      : false;
+
+    if (!device || !isValidPassword) {
       return res.status(401).json({
         message: "Invalid credentials",
         code: "INVALID_CREDENTIALS",
@@ -122,33 +128,19 @@ function createCookies(cookieDevice: any, res: Response) {
   });
 }
 
-export const logout = async (req: Request, res: Response) => {
-  try {
-    const token = req.cookies.access_token;
+export const logout = async (_req: Request, res: Response) => {
+  const cookieOptions = {
+    path: "/",
+    httpOnly: true,
+    secure: true,
+    sameSite: "none" as const,
+    domain: DOMAIN,
+    maxAge: 0,
+  };
 
-    if (token) {
-      res.cookie("refresh_token", "", {
-        path: "/",
-        httpOnly: true,
-        secure: true, ///process.env.NODE_ENV == 'production',
-        sameSite: "none",
-        domain: DOMAIN,
-        maxAge: 0,
-      });
-
-      res.cookie("access_token", "", {
-        path: "/",
-        httpOnly: true,
-        secure: true, ///process.env.NODE_ENV == 'production',
-        sameSite: "none",
-        domain: DOMAIN,
-        maxAge: 0,
-      });
-      return res.status(200).json({ message: "Logged out" });
-    }
-  } catch (error) {
-    return res.status(500).json({ message: error });
-  }
+  res.clearCookie("access_token", cookieOptions);
+  res.clearCookie("refresh_token", cookieOptions);
+  return res.status(200).json({ message: "Logged out" });
 };
 
 export const getToken = (req: Request, res: Response) => {
@@ -181,6 +173,11 @@ export const getToken = (req: Request, res: Response) => {
  */
 export const getDeviceSessions = async (req: Request, res: Response) => {
   const { deviceId } = req.params;
+  const authenticatedId = (req as any).jwtDeviceId;
+
+  if (deviceId !== authenticatedId) {
+    return res.status(403).json({ message: "Access denied" });
+  }
 
   try {
     const device = await Device.findByPk(deviceId);
@@ -233,12 +230,17 @@ export const getDeviceSessions = async (req: Request, res: Response) => {
  */
 export const getSessionData = async (req: Request, res: Response) => {
   const { sessionId } = req.params;
+  const authenticatedId = (req as any).jwtDeviceId;
 
   try {
     const session = await TelemetrySession.findByPk(sessionId);
 
     if (!session) {
       return res.status(404).json({ message: "Session not found" });
+    }
+
+    if (session.getDataValue("device_id") !== authenticatedId) {
+      return res.status(403).json({ message: "Access denied" });
     }
 
     const data = await TelemetryData.findAll({
@@ -281,6 +283,18 @@ export const getSessionData = async (req: Request, res: Response) => {
 export const saveSession = async (req: Request, res: Response) => {
   const { deviceId } = req.params;
   const { sessionName } = req.body;
+  const authenticatedId = (req as any).jwtDeviceId;
+
+  if (deviceId !== authenticatedId) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+
+  if (
+    sessionName !== undefined &&
+    (typeof sessionName !== "string" || sessionName.trim().length === 0 || sessionName.length > 100)
+  ) {
+    return res.status(400).json({ message: "sessionName must be a non-empty string of max 100 characters" });
+  }
 
   try {
     const device = await Device.findByPk(deviceId);
@@ -375,12 +389,17 @@ export const saveSession = async (req: Request, res: Response) => {
  */
 export const deleteSession = async (req: Request, res: Response) => {
   const { sessionId } = req.params;
+  const authenticatedId = (req as any).jwtDeviceId;
 
   try {
     const session = await TelemetrySession.findByPk(sessionId);
 
     if (!session) {
       return res.status(404).json({ message: "Session not found" });
+    }
+
+    if (session.getDataValue("device_id") !== authenticatedId) {
+      return res.status(403).json({ message: "Access denied" });
     }
 
     const deviceId = session.getDataValue("device_id");
@@ -409,6 +428,11 @@ export const deleteSession = async (req: Request, res: Response) => {
  */
 export const getPlanInfo = async (req: Request, res: Response) => {
   const { deviceId } = req.params;
+  const authenticatedId = (req as any).jwtDeviceId;
+
+  if (deviceId !== authenticatedId) {
+    return res.status(403).json({ message: "Access denied" });
+  }
 
   try {
     const device = await Device.findByPk(deviceId);
@@ -477,6 +501,11 @@ export const getCurrentRecordingSession = async (
   res: Response,
 ) => {
   const { deviceId } = req.params;
+  const authenticatedId = (req as any).jwtDeviceId;
+
+  if (deviceId !== authenticatedId) {
+    return res.status(403).json({ message: "Access denied" });
+  }
 
   try {
     const device = await Device.findByPk(deviceId);
@@ -552,6 +581,11 @@ export const getCurrentRecordingSession = async (
  */
 export const completeRecordingSession = async (req: Request, res: Response) => {
   const { deviceId } = req.params;
+  const authenticatedId = (req as any).jwtDeviceId;
+
+  if (deviceId !== authenticatedId) {
+    return res.status(403).json({ message: "Access denied" });
+  }
 
   try {
     const device = await Device.findByPk(deviceId);
