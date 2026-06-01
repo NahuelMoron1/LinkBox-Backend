@@ -1,3 +1,4 @@
+import bcrypt from "bcrypt";
 import { Request, Response } from "express";
 import Device from "../models/mysql/Device";
 import TelemetryData from "../models/mysql/TelemetryData";
@@ -10,23 +11,18 @@ interface CacheEntry {
   plan: string;
   subscription_status: string;
   expiration: number;
+  authValidUntil: number;
 }
 
 const deviceCache: Record<string, CacheEntry> = {};
 const CACHE_DURATION = 24 * 60 * 60 * 1000;
+const AUTH_CACHE_DURATION = 30 * 1000;
 
-/**
- * Validar en cache (muy rápido)
- */
-const validateFromCache = (
+const validateFromCache = async (
   cachedDevice: CacheEntry | undefined,
   password: string,
 ) => {
   if (!cachedDevice) return { valid: false, error: "Not in cache" };
-
-  if (cachedDevice.password !== password) {
-    return { valid: false, error: "Invalid password" };
-  }
 
   if (cachedDevice.status === "inactive") {
     return { valid: false, error: "Device is inactive" };
@@ -48,12 +44,50 @@ const validateFromCache = (
     };
   }
 
+  // Si la validación de contraseña ya está cacheada, saltear bcrypt
+  if (Date.now() < cachedDevice.authValidUntil) {
+    return { valid: true };
+  }
+
+  const isValidPassword = await bcrypt.compare(password, cachedDevice.password);
+  if (!isValidPassword) {
+    return { valid: false, error: "Invalid password" };
+  }
+
+  cachedDevice.authValidUntil = Date.now() + AUTH_CACHE_DURATION;
   return { valid: true };
 };
 
 /**
  * Obtener o crear sesión de grabación actual (Plan Ultimate)
  */
+const TELEMETRY_RANGES: Record<string, [number, number]> = {
+  rpm:        [0, 20000],
+  water_temp: [-50, 200],
+  oil_temp:   [-50, 200],
+  oil_press:  [0, 200],
+  fuel_press: [0, 100],
+  sonda:      [0, 5],
+  gear:       [0, 8],
+};
+
+const validateTelemetryData = (data: any): { valid: boolean; error?: string } => {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return { valid: false, error: "data must be a plain object" };
+  }
+
+  for (const [field, [min, max]] of Object.entries(TELEMETRY_RANGES)) {
+    const val = data[field];
+    if (val === undefined || val === null) continue;
+    const num = Number(val);
+    if (isNaN(num) || num < min || num > max) {
+      return { valid: false, error: `Invalid ${field}: ${val} (expected ${min}–${max})` };
+    }
+  }
+
+  return { valid: true };
+};
+
 const getOrCreateRecordingSession = async (deviceId: string) => {
   let session = await TelemetrySession.findOne({
     where: {
@@ -85,6 +119,11 @@ const getOrCreateRecordingSession = async (deviceId: string) => {
 export const postTelemetry = async (req: Request, res: Response) => {
   const { id, password, data } = req.body;
   const now = Date.now();
+
+  const dataValidation = validateTelemetryData(data);
+  if (!dataValidation.valid) {
+    return res.status(400).json({ message: dataValidation.error });
+  }
 
   try {
     let cachedDevice = deviceCache[id];
@@ -118,12 +157,13 @@ export const postTelemetry = async (req: Request, res: Response) => {
         plan: device.getDataValue("plan"),
         subscription_status: device.getDataValue("subscription_status"),
         expiration: now + CACHE_DURATION,
+        authValidUntil: 0,
       };
       deviceCache[id] = cachedDevice;
     }
 
     // Validar desde cache
-    const validation = validateFromCache(cachedDevice, password);
+    const validation = await validateFromCache(cachedDevice, password);
     if (!validation.valid) {
       if (validation.code === "SUBSCRIPTION_SUSPENDED") {
         return res.status(403).json({
@@ -172,7 +212,7 @@ export const postTelemetry = async (req: Request, res: Response) => {
         fuel_press: data.fuel_press || null,
         sonda: data.sonda || null,
         gear: data.gear || null,
-        timestamp: new Date(data.timestamp || Date.now()),
+        timestamp: new Date(),
       } as any);
 
       // Incrementar contador
