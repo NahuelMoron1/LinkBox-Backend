@@ -387,6 +387,30 @@ export const saveSession = async (req: Request, res: Response) => {
  * DELETE /api/devices/sessions/:sessionId
  * Eliminar una sesión
  */
+export const renameSession = async (req: Request, res: Response) => {
+  const { sessionId } = req.params;
+  const { name }      = req.body;
+  const authenticatedId = (req as any).jwtDeviceId;
+
+  if (!name || typeof name !== 'string' || !name.trim()) {
+    return res.status(400).json({ message: 'Session name is required' });
+  }
+
+  try {
+    const session = await TelemetrySession.findByPk(sessionId);
+    if (!session)
+      return res.status(404).json({ message: 'Session not found' });
+    if (session.getDataValue('device_id') !== authenticatedId)
+      return res.status(403).json({ message: 'Access denied' });
+
+    await session.update({ session_name: name.trim() });
+    return res.status(200).json({ message: 'Session renamed', name: name.trim() });
+  } catch (error) {
+    console.error('[RENAME SESSION ERROR]', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 export const deleteSession = async (req: Request, res: Response) => {
   const { sessionId } = req.params;
   const authenticatedId = (req as any).jwtDeviceId;
