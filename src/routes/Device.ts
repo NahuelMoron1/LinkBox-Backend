@@ -9,6 +9,7 @@ import {
   getToken,
   loginDevice,
   logout,
+  renameSession,
   saveSession,
 } from "../controllers/Device";
 import { postTelemetry } from "../controllers/Telemetry";
@@ -31,6 +32,7 @@ router.get("/:deviceId/recording-session", authenticateJWT, validateSubscription
 router.post("/:deviceId/recording-session/complete", authenticateJWT, validateSubscription, completeRecordingSession);
 router.get("/sessions/:sessionId/data", authenticateJWT, validateSubscription, getSessionData);
 router.post("/:deviceId/sessions/save", authenticateJWT, validateSubscription, saveSession);
+router.patch("/sessions/:sessionId/rename", authenticateJWT, validateSubscription, renameSession);
 router.delete("/sessions/:sessionId", authenticateJWT, validateSubscription, deleteSession);
 router.get("/:deviceId/plan-info", authenticateJWT, validateSubscription, getPlanInfo);
 
