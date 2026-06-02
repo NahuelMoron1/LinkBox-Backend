@@ -1,5 +1,6 @@
 import bcrypt from "bcrypt";
 import { Request, Response } from "express";
+import { Op } from "sequelize";
 import Device from "../models/mysql/Device";
 import TelemetryData from "../models/mysql/TelemetryData";
 import TelemetrySession from "../models/mysql/TelemetrySession";
@@ -97,24 +98,48 @@ const validateTelemetryData = (data: any): { valid: boolean; error?: string } =>
   return { valid: true };
 };
 
+// If a session was completed within this window and the device reconnects,
+// reopen it instead of creating a duplicate.
+const REOPEN_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+
 const getOrCreateRecordingSession = async (deviceId: string) => {
+  // 1. Look for an existing recording session first
   let session = await TelemetrySession.findOne({
+    where: { device_id: deviceId, status: "recording" },
+  });
+  if (session) return session;
+
+  // 2. If a session was completed very recently (< 10 min), reopen it.
+  //    This prevents creating a new session when the device briefly disconnects
+  //    and the inactivity timeout completes the session just before it reconnects.
+  const recentlyCompleted = await TelemetrySession.findOne({
     where: {
       device_id: deviceId,
-      status: "recording",
+      status: "completed",
+      end_time: { [Op.gte]: new Date(Date.now() - REOPEN_WINDOW_MS) },
     },
+    order: [["end_time", "DESC"]],
   });
 
-  if (!session) {
-    session = await TelemetrySession.create({
-      device_id: deviceId,
-      session_name: `Session - ${new Date().toISOString()}`,
-      start_time: new Date(),
-      status: "recording",
-    } as any);
+  if (recentlyCompleted) {
+    await recentlyCompleted.update({ status: "recording", end_time: null });
+    console.log(`[Telemetry] Reopened session ${recentlyCompleted.getDataValue("id")} for device ${deviceId}`);
+    return recentlyCompleted;
   }
 
-  return session;
+  // 3. No active or recent session — create a new one.
+  //    Use findOrCreate to prevent race conditions when multiple packets
+  //    arrive simultaneously (common at 10 packets/second).
+  const [newSession] = await TelemetrySession.findOrCreate({
+    where: { device_id: deviceId, status: "recording" },
+    defaults: {
+      session_name: `Session - ${new Date().toLocaleString()}`,
+      start_time: new Date(),
+      status: "recording",
+    } as any,
+  });
+
+  return newSession;
 };
 
 /**
