@@ -10,6 +10,8 @@ import { Server as SocketServer } from "socket.io";
 
 // Routes
 import deviceRouter from "../routes/Device";
+import subscriptionRouter from "../routes/Subscription";
+import { stripeWebhook } from "../controllers/StripeWebhook";
 
 // Database
 import db from "../db/connection";
@@ -88,6 +90,12 @@ class Server {
     // Security headers
     this.app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 
+    // Stripe webhook necesita el body RAW (antes del json parser)
+    this.app.use(
+      "/api/webhooks/stripe",
+      express.raw({ type: "application/json" }),
+    );
+
     // Body size limit — previene payloads gigantes
     this.app.use(express.json({ limit: "16kb" }));
 
@@ -127,6 +135,10 @@ class Server {
       res.json({ msg: "LinkBox API working" });
     });
     this.app.use("/api/devices", deviceRouter);
+    this.app.use("/api/subscriptions", subscriptionRouter);
+
+    // Webhook de Stripe: body ya viene raw por el middleware registrado arriba
+    this.app.post("/api/webhooks/stripe", stripeWebhook);
   }
 
   async dbConnect() {
