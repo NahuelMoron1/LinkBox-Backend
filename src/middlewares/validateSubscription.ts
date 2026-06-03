@@ -43,6 +43,13 @@ export const validateSubscription = async (
       });
     }
 
+    if (device.getDataValue("subscription_status") === "inactive") {
+      return res.status(403).json({
+        message: "No active subscription. Please purchase a plan to continue.",
+        code: "SUBSCRIPTION_REQUIRED",
+      });
+    }
+
     if (device.getDataValue("subscription_status") === "suspended") {
       return res.status(403).json({
         message: "Subscription has been suspended",

@@ -35,10 +35,10 @@ const Device = db.define(
       comment: "Plan de membresía del device",
     },
     subscription_status: {
-      type: DataTypes.ENUM("active", "suspended", "expired"),
+      type: DataTypes.ENUM("inactive", "active", "suspended", "expired"),
       allowNull: false,
-      defaultValue: "active",
-      comment: "Estado actual de la suscripción",
+      defaultValue: "inactive",
+      comment: "Estado actual de la suscripción. 'inactive' = nunca compró un plan",
     },
     subscription_end_date: {
       type: DataTypes.DATE,
@@ -54,6 +54,22 @@ const Device = db.define(
       type: DataTypes.DATE,
       defaultValue: DataTypes.NOW,
       comment: "Última vez que se reseteo el contador",
+    },
+    stripe_customer_id: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      comment: "Stripe Customer ID asociado al device",
+    },
+    stripe_subscription_id: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      comment: "Stripe Subscription ID activa del device",
+    },
+    cancel_at_period_end: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      comment: "Si true, la suscripción se cancela al vencer el período",
     },
     created_at: {
       type: DataTypes.DATE,

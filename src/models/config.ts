@@ -25,3 +25,10 @@ export const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
   : [];
 export const NODEMAILER = process.env.NODEMAILER as string;
 export const NODEMAILER_USER = process.env.NODEMAILER_USER as string;
+
+// Stripe
+export const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY as string;
+export const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET as string;
+export const STRIPE_PRICE_PRO = process.env.STRIPE_PRICE_PRO as string;
+export const STRIPE_PRICE_ULTIMATE = process.env.STRIPE_PRICE_ULTIMATE as string;
+export const FRONTEND_URL = process.env.FRONTEND_URL as string;

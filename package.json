@@ -36,6 +36,7 @@
     "sequelize": "^6.37.3",
     "sharp": "^0.33.4",
     "socket.io": "^4.8.3",
+    "stripe": "^22.2.0",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
     "uuid": "^11.0.5"
@@ -50,9 +51,13 @@
     "@types/jsonwebtoken": "^9.0.7",
     "@types/morgan": "^1.9.9",
     "@types/multer": "^1.4.11",
+    "@types/node": "^25.9.1",
     "@types/nodemailer": "^6.4.15",
+    "@types/stripe": "^8.0.417",
     "@types/swagger-jsdoc": "^6.0.4",
     "@types/swagger-ui-express": "^4.1.8",
-    "@types/uuid": "^10.0.0"
+    "@types/uuid": "^10.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
   }
 }

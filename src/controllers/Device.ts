@@ -39,11 +39,15 @@ export const loginDevice = async (req: Request, res: Response) => {
       });
     }
 
-    // Verificar suscripción expirada
+    // Verificar suscripción expirada (solo si ya tuvo una suscripción activa)
     const subscriptionEndDate = device.getDataValue("subscription_end_date");
     let subscriptionStatus = device.getDataValue("subscription_status");
 
-    if (subscriptionEndDate && new Date(subscriptionEndDate) < new Date()) {
+    if (
+      subscriptionStatus !== "inactive" &&
+      subscriptionEndDate &&
+      new Date(subscriptionEndDate) < new Date()
+    ) {
       subscriptionStatus = "expired";
       await device.update({ subscription_status: "expired" });
     }
