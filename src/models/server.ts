@@ -3,10 +3,15 @@ import rateLimit from "express-rate-limit";
 import express, { Application, Request, Response } from "express";
 import http from "http";
 import morgan from "morgan";
+import path from "path";
 import { Server as SocketServer } from "socket.io";
 
 import deviceRouter from "../routes/Device";
+import updateRouter from "../routes/Update";
+import { checkForUpdates, getPendingUpdate } from "../controllers/Update";
 import { PORT } from "./config";
+
+const ANGULAR_DIST = path.join(process.cwd(), "../LinkBoxApp/dist/link-box-app/browser");
 
 class Server {
   private app: Application;
@@ -32,6 +37,10 @@ class Server {
 
   sockets() {
     this.io.on("connection", (socket) => {
+      // If an update was found before this client connected, notify it immediately
+      const pending = getPendingUpdate();
+      if (pending) socket.emit("update:available", pending);
+
       socket.on("disconnect", () => {});
     });
 
@@ -41,6 +50,8 @@ class Server {
   listen() {
     this.server.listen(this.port, () => {
       console.log("LinkBox Dashboard Server listening on port", this.port);
+      // Check for updates 60 s after boot (gives time for WiFi to settle)
+      setTimeout(() => checkForUpdates(this.io), 60_000);
     });
   }
 
@@ -60,10 +71,16 @@ class Server {
   }
 
   routes() {
-    this.app.get("/", (_req: Request, res: Response) => {
-      res.json({ msg: "LinkBox Dashboard API" });
-    });
     this.app.use("/api/devices", deviceRouter);
+    this.app.use("/api/update", updateRouter);
+
+    // Serve Angular build
+    this.app.use(express.static(ANGULAR_DIST));
+
+    // Catch-all: let Angular handle client-side routing
+    this.app.get("*", (_req: Request, res: Response) => {
+      res.sendFile(path.join(ANGULAR_DIST, "index.html"));
+    });
   }
 }
 
