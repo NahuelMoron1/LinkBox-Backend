@@ -1,57 +1,67 @@
 import { Request, Response } from "express";
-import { execFileSync } from "child_process";
+import http from "http";
 
-interface WifiNetwork {
-  ssid: string;
-  signal: number;
-  secured: boolean;
+// El contenedor no tiene acceso al NetworkManager del host — nmcli lo
+// ejecuta linkbox-deploy/network/network_helper.py, corriendo en el host
+// como systemd service. Este controller es un proxy delgado, igual que
+// Update.ts. Ver PLAN_LinkBox_Dashboard_Only.md sección 2.
+const NETWORK_HELPER_URL = process.env.LINKBOX_NETWORK_HELPER_URL || "http://host.docker.internal:4002";
+const REQUEST_TIMEOUT_MS = 15000;
+
+function requestJson<T>(path: string, method: "GET" | "POST", body?: unknown): Promise<{ status: number; data: T }> {
+  return new Promise((resolve, reject) => {
+    const payload = body ? JSON.stringify(body) : undefined;
+    const req = http.request(
+      `${NETWORK_HELPER_URL}${path}`,
+      {
+        method,
+        timeout: REQUEST_TIMEOUT_MS,
+        headers: payload
+          ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }
+          : undefined,
+      },
+      (res) => {
+        let raw = "";
+        res.on("data", (chunk) => (raw += chunk));
+        res.on("end", () => {
+          try {
+            resolve({ status: res.statusCode ?? 500, data: JSON.parse(raw || "{}") as T });
+          } catch (err) {
+            reject(err);
+          }
+        });
+      }
+    );
+    req.on("error", reject);
+    req.on("timeout", () => req.destroy(new Error("network helper request timed out")));
+    if (payload) req.write(payload);
+    req.end();
+  });
 }
 
-function nmcli(args: string[], timeout = 10000): string {
-  return execFileSync("sudo", ["nmcli", ...args], { timeout }).toString();
-}
-
-export function getStatus(_req: Request, res: Response): void {
+export async function getStatus(_req: Request, res: Response): Promise<void> {
   try {
-    const output = nmcli(["-t", "-f", "ACTIVE,SSID", "dev", "wifi"]);
-    const active = output.split("\n").find((l) => l.startsWith("yes:"));
-    const ssid = active ? active.split(":")[1] : null;
-    res.json({ connected: !!ssid, ssid });
+    const { data } = await requestJson("/status", "GET");
+    res.json(data);
   } catch {
     res.json({ connected: false, ssid: null });
   }
 }
 
-export function scan(_req: Request, res: Response): void {
+export async function scan(_req: Request, res: Response): Promise<void> {
   try {
-    nmcli(["device", "wifi", "rescan"]);
-  } catch {
-    // un escaneo puede estar ya en curso — listamos lo que haya igual
-  }
-
-  try {
-    const output = nmcli(["-t", "-f", "SSID,SIGNAL,SECURITY", "device", "wifi", "list"]);
-    const seen = new Map<string, WifiNetwork>();
-
-    output.split("\n").forEach((line) => {
-      const [ssid, signal, security] = line.split(":");
-      if (!ssid) return;
-      const network: WifiNetwork = {
-        ssid,
-        signal: Number(signal) || 0,
-        secured: !!security && security !== "--",
-      };
-      const existing = seen.get(ssid);
-      if (!existing || network.signal > existing.signal) seen.set(ssid, network);
-    });
-
-    res.json({ networks: [...seen.values()].sort((a, b) => b.signal - a.signal) });
+    const { data } = await requestJson<{ error?: string }>("/scan", "GET");
+    if (data.error) {
+      res.status(500).json({ message: data.error });
+      return;
+    }
+    res.json(data);
   } catch {
     res.status(500).json({ message: "No se pudo escanear redes" });
   }
 }
 
-export function connect(req: Request, res: Response): void {
+export async function connect(req: Request, res: Response): Promise<void> {
   const { ssid, password } = req.body;
   if (!ssid || typeof ssid !== "string") {
     res.status(400).json({ message: "SSID requerido" });
@@ -59,11 +69,8 @@ export function connect(req: Request, res: Response): void {
   }
 
   try {
-    const args = password && typeof password === "string"
-      ? ["device", "wifi", "connect", ssid, "password", password]
-      : ["device", "wifi", "connect", ssid];
-    nmcli(args, 30000);
-    res.json({ message: "Conectado", ssid });
+    const { status, data } = await requestJson("/connect", "POST", { ssid, password });
+    res.status(status).json(data);
   } catch {
     res.status(500).json({ message: "No se pudo conectar" });
   }

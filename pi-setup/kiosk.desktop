@@ -1,7 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=LinkBox Kiosk
-Comment=Arranca el entorno de kiosco de LinkBox al iniciar sesión
-Exec=/home/pi/linkbox/Server/pi-setup/start-kiosk.sh
-X-GNOME-Autostart-enabled=true
-NoDisplay=false
