@@ -1,0 +1,104 @@
+name: Dashboard Only CI/CD
+
+on:
+  push:
+    branches: [Dashboard_Only]
+  pull_request:
+    branches: [Dashboard_Only]
+  # Disparado por LinkBoxApp cuando cambia su Dashboard_Only, para que un
+  # cambio solo de frontend también produzca una imagen combinada nueva.
+  repository_dispatch:
+    types: [frontend-updated]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || 'Dashboard_Only' }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm test -- --coverage
+
+  build-and-release:
+    needs: test
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/Dashboard_Only') ||
+      github.event_name == 'repository_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Server (self)
+        uses: actions/checkout@v4
+        with:
+          ref: Dashboard_Only
+          path: Server
+
+      - name: Checkout LinkBoxApp
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/LinkBoxApp
+          ref: Dashboard_Only
+          token: ${{ secrets.CROSS_REPO_TOKEN }}
+          path: LinkBoxApp
+
+      - name: Read version
+        id: version
+        run: echo "tag=v$(cat Server/VERSION | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if release already exists
+        id: check_release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ steps.version.outputs.tag }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up QEMU
+        if: steps.check_release.outputs.exists == 'false'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        if: steps.check_release.outputs.exists == 'false'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: steps.check_release.outputs.exists == 'false'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push multi-arch image
+        if: steps.check_release.outputs.exists == 'false'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Server/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.tag }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/linkbox-dashboard:${{ steps.version.outputs.tag }}
+            ghcr.io/${{ github.repository_owner }}/linkbox-dashboard:latest
+
+      - name: Create GitHub Release
+        if: steps.check_release.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          repository: ${{ github.repository }}

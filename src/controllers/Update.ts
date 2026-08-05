@@ -1,67 +1,91 @@
 import { Request, Response } from "express";
-import { execSync, spawn } from "child_process";
-import { existsSync } from "fs";
+import http from "http";
 import { Server as SocketServer } from "socket.io";
-import path from "path";
 
-const SERVER_DIR = process.cwd();
-const FRONTEND_DIR = path.join(SERVER_DIR, "../frontend");
-const BRANCH = "Dashboard_Only";
-const SCRIPT_PATH = path.join(SERVER_DIR, "scripts/run-update.sh");
+// El contenedor no puede reemplazarse a sí mismo — el pull/healthcheck/swap
+// real lo hace linkbox-deploy/updater/updater.py, corriendo en el host con
+// acceso a /var/run/docker.sock. Este controller solo consulta su estado y
+// re-emite el progreso por Socket.io, para no cambiar el contrato que ya
+// usa UpdateService.ts en el frontend.
+const UPDATER_URL = process.env.LINKBOX_UPDATER_URL || "http://host.docker.internal:4001";
+const POLL_INTERVAL_MS = 1000;
+const REQUEST_TIMEOUT_MS = 5000;
 
-interface UpdateInfo { version: string; }
+interface UpdaterStatus {
+  installedVersion: string | null;
+  latestVersion: string | null;
+  available: boolean;
+  installing: boolean;
+  progress: string | null;
+  error: string | null;
+}
 
-let installing = false;
-
-async function findUpdate(): Promise<UpdateInfo | null> {
-  try {
-    execSync(`git -C "${SERVER_DIR}" fetch origin ${BRANCH} --quiet`, { timeout: 15000 });
-    const local  = execSync(`git -C "${SERVER_DIR}" rev-parse HEAD`).toString().trim();
-    const remote = execSync(`git -C "${SERVER_DIR}" rev-parse origin/${BRANCH}`).toString().trim();
-    if (local !== remote) return { version: remote.substring(0, 7) };
-
-    if (existsSync(FRONTEND_DIR)) {
-      execSync(`git -C "${FRONTEND_DIR}" fetch origin main --quiet`, { timeout: 15000 });
-      const localFE  = execSync(`git -C "${FRONTEND_DIR}" rev-parse HEAD`).toString().trim();
-      const remoteFE = execSync(`git -C "${FRONTEND_DIR}" rev-parse origin/main`).toString().trim();
-      if (localFE !== remoteFE) return { version: remoteFE.substring(0, 7) };
-    }
-
-    return null;
-  } catch {
-    // sin internet o error de git
-    return null;
-  }
+function requestJson<T>(path: string, method: "GET" | "POST"): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(`${UPDATER_URL}${path}`, { method, timeout: REQUEST_TIMEOUT_MS }, (res) => {
+      let body = "";
+      res.on("data", (chunk) => (body += chunk));
+      res.on("end", () => {
+        try {
+          resolve(JSON.parse(body || "{}") as T);
+        } catch (err) {
+          reject(err);
+        }
+      });
+    });
+    req.on("error", reject);
+    req.on("timeout", () => req.destroy(new Error("updater request timed out")));
+    req.end();
+  });
 }
 
 export async function check(_req: Request, res: Response): Promise<void> {
-  const update = await findUpdate();
-  res.json({ available: update !== null, version: update?.version ?? null });
+  try {
+    const status = await requestJson<UpdaterStatus>("/status", "GET");
+    res.json({ available: status.available, version: status.latestVersion });
+  } catch {
+    res.json({ available: false, version: null });
+  }
 }
 
-export function install(req: Request, res: Response): void {
-  if (installing) {
-    res.status(409).json({ message: "Ya hay una actualización en curso" });
+let polling = false;
+
+function pollProgress(io: SocketServer): void {
+  if (polling) return;
+  polling = true;
+
+  let lastStep: string | null = null;
+  const interval = setInterval(async () => {
+    try {
+      const status = await requestJson<UpdaterStatus>("/status", "GET");
+
+      if (status.progress && status.progress !== lastStep) {
+        lastStep = status.progress;
+        io.emit("update:progress", { step: status.progress });
+      }
+
+      if (!status.installing && lastStep !== null) {
+        clearInterval(interval);
+        polling = false;
+        io.emit("update:complete", { success: !status.error, error: status.error });
+      }
+    } catch {
+      // el updater puede quedar momentáneamente inalcanzable durante el
+      // swap del propio contenedor — se reintenta en el próximo tick.
+    }
+  }, POLL_INTERVAL_MS);
+}
+
+export async function install(req: Request, res: Response): Promise<void> {
+  const io: SocketServer = req.app.get("socketio");
+
+  try {
+    const response = await requestJson<{ message: string }>("/install", "POST");
+    res.json(response);
+  } catch {
+    res.status(502).json({ message: "No se pudo contactar al servicio de actualización" });
     return;
   }
 
-  const io: SocketServer = req.app.get("socketio");
-  installing = true;
-  res.json({ message: "Instalación iniciada" });
-
-  const child = spawn("bash", [SCRIPT_PATH], { cwd: SERVER_DIR });
-
-  child.stdout.on("data", (data: Buffer) => {
-    data.toString().split("\n").forEach((rawLine) => {
-      const line = rawLine.trim();
-      if (line.startsWith("STATUS:")) {
-        io.emit("update:progress", { step: line.slice(7) });
-      }
-    });
-  });
-
-  child.on("close", (code: number | null) => {
-    installing = false;
-    io.emit("update:complete", { success: code === 0 });
-  });
+  pollProgress(io);
 }

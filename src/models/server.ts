@@ -1,6 +1,7 @@
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import express, { Application, Request, Response } from "express";
+import fs from "fs";
 import http from "http";
 import morgan from "morgan";
 import path from "path";
@@ -11,15 +12,31 @@ import updateRouter from "../routes/Update";
 import networkRouter from "../routes/Network";
 import { PORT } from "./config";
 
-const ANGULAR_DIST = path.join(process.cwd(), "../LinkBoxApp/dist/link-box-app/browser");
+// En el contenedor Docker el build de Angular se copia a ANGULAR_DIST_PATH (ver Dockerfile);
+// en desarrollo local se sirve directo desde el checkout hermano de LinkBoxApp.
+const ANGULAR_DIST =
+  process.env.ANGULAR_DIST_PATH ||
+  path.join(process.cwd(), "../LinkBoxApp/dist/link-box-app/browser");
+
+export function readVersion(): string {
+  try {
+    return fs.readFileSync(path.join(process.cwd(), "VERSION"), "utf-8").trim();
+  } catch {
+    return process.env.APP_VERSION || "0.0.0-dev";
+  }
+}
+
+interface ServerOptions {
+  listen?: boolean;
+}
 
 class Server {
-  private app: Application;
+  public app: Application;
   private port?: string;
   private server: http.Server;
   private io: SocketServer;
 
-  constructor() {
+  constructor(options: ServerOptions = {}) {
     this.app = express();
     this.port = PORT;
 
@@ -32,7 +49,10 @@ class Server {
     this.middlewares();
     this.routes();
     this.sockets();
-    this.listen();
+
+    if (options.listen !== false) {
+      this.listen();
+    }
   }
 
   sockets() {
@@ -65,6 +85,12 @@ class Server {
   }
 
   routes() {
+    // Usado por el HEALTHCHECK de Docker y por el updater del host para
+    // confirmar que el contenedor nuevo levantó bien antes del swap.
+    this.app.get("/health", (_req: Request, res: Response) => {
+      res.json({ status: "ok", version: readVersion() });
+    });
+
     this.app.use("/api/devices", deviceRouter);
     this.app.use("/api/update", updateRouter);
     this.app.use("/api/network", networkRouter);
