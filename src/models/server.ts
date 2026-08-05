@@ -8,7 +8,7 @@ import { Server as SocketServer } from "socket.io";
 
 import deviceRouter from "../routes/Device";
 import updateRouter from "../routes/Update";
-import { checkForUpdates, getPendingUpdate } from "../controllers/Update";
+import networkRouter from "../routes/Network";
 import { PORT } from "./config";
 
 const ANGULAR_DIST = path.join(process.cwd(), "../LinkBoxApp/dist/link-box-app/browser");
@@ -37,10 +37,6 @@ class Server {
 
   sockets() {
     this.io.on("connection", (socket) => {
-      // If an update was found before this client connected, notify it immediately
-      const pending = getPendingUpdate();
-      if (pending) socket.emit("update:available", pending);
-
       socket.on("disconnect", () => {});
     });
 
@@ -50,8 +46,6 @@ class Server {
   listen() {
     this.server.listen(this.port, () => {
       console.log("LinkBox Dashboard Server listening on port", this.port);
-      // Check for updates 60 s after boot (gives time for WiFi to settle)
-      setTimeout(() => checkForUpdates(this.io), 60_000);
     });
   }
 
@@ -73,6 +67,7 @@ class Server {
   routes() {
     this.app.use("/api/devices", deviceRouter);
     this.app.use("/api/update", updateRouter);
+    this.app.use("/api/network", networkRouter);
 
     // Serve Angular build
     this.app.use(express.static(ANGULAR_DIST));

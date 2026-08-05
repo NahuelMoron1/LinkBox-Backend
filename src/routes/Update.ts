@@ -1,8 +1,7 @@
 import { Router } from "express";
-import { getStatus, approve, reject } from "../controllers/Update";
+import { check, install } from "../controllers/Update";
 
 const router = Router();
-router.get("/status", getStatus);
-router.post("/approve", approve);
-router.post("/reject", reject);
+router.post("/check", check);
+router.post("/install", install);
 export default router;
