@@ -32,3 +32,13 @@ export const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET as string
 export const STRIPE_PRICE_PRO = process.env.STRIPE_PRICE_PRO as string;
 export const STRIPE_PRICE_ULTIMATE = process.env.STRIPE_PRICE_ULTIMATE as string;
 export const FRONTEND_URL = process.env.FRONTEND_URL as string;
+
+// Fail-closed: sin SECRET_JWT_KEY, jwt.sign/verify se rompe recién en el
+// primer login/telemetría en producción — con un error confuso, en vivo,
+// con clientes reales conectados. Mejor que el proceso ni arranque.
+if (!SECRET_JWT_KEY) {
+  throw new Error(
+    "SECRET_JWT_KEY no está configurado — es la clave de todo el sistema de auth " +
+      "(login, JWT de sesión, sockets). El servidor no puede arrancar sin ella.",
+  );
+}

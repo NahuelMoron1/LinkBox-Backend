@@ -96,8 +96,11 @@ class Server {
       express.raw({ type: "application/json" }),
     );
 
-    // Body size limit — previene payloads gigantes
-    this.app.use(express.json({ limit: "16kb" }));
+    // Body size limit — previene payloads gigantes. 64kb da lugar a un lote
+    // de catch-up de telemetría (hasta MAX_TELEMETRY_BATCH muestras, ver
+    // Telemetry.ts) sin abrir la puerta a payloads realmente grandes en el
+    // resto de los endpoints (login, nombres de sesión, etc. son mucho más chicos).
+    this.app.use(express.json({ limit: "64kb" }));
 
     this.app.use(morgan("dev"));
     this.app.use(
@@ -119,10 +122,13 @@ class Server {
     });
     this.app.use("/api/devices/login", loginLimiter);
 
-    // Rate limiting en telemetría: máx 30 req/seg por IP (100ms * 10 dispositivos)
+    // Rate limiting en telemetría: la Pi puede mandar hasta 50 muestras/seg
+    // en vivo (requisito de frecuencia exacta, ver postTelemetry) más ráfagas
+    // de catch-up en lote tras un corte de señal — 120 req/seg por IP da
+    // margen real sin dejar de frenar un abuso genuino.
     const telemetryLimiter = rateLimit({
       windowMs: 1000,
-      max: 30,
+      max: 120,
       message: { message: "Telemetry rate limit exceeded" },
       standardHeaders: true,
       legacyHeaders: false,
