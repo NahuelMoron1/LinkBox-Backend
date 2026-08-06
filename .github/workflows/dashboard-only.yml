@@ -102,3 +102,20 @@ jobs:
           target_commitish: ${{ github.sha }}
           generate_release_notes: true
           repository: ${{ github.repository }}
+
+      # Rollout escalonado (opcional — ver linkbox-fleet/README.md). Arranca
+      # en 10%, no en 100%, para no ofrecerle una versión nueva a toda la
+      # flota el mismo día que se publica. Si no configuraste linkbox-fleet
+      # todavía, estos secrets no existen y el paso se salta solo.
+      - name: Start the new release at 10% rollout
+        if: steps.check_release.outputs.exists == 'false' && secrets.LINKBOX_FLEET_URL != '' && secrets.LINKBOX_FLEET_API_KEY != ''
+        continue-on-error: true
+        env:
+          FLEET_URL: ${{ secrets.LINKBOX_FLEET_URL }}
+          FLEET_API_KEY: ${{ secrets.LINKBOX_FLEET_API_KEY }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          curl -sf -X POST "$FLEET_URL/api/fleet/rollout" \
+            -H "Content-Type: application/json" \
+            -H "X-Api-Key: $FLEET_API_KEY" \
+            -d "{\"version\":\"$TAG\",\"rollout_percent\":10}"
