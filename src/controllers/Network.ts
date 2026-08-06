@@ -6,19 +6,24 @@ import http from "http";
 // como systemd service. Este controller es un proxy delgado, igual que
 // Update.ts. Ver PLAN_LinkBox_Dashboard_Only.md sección 2.
 const NETWORK_HELPER_URL = process.env.LINKBOX_NETWORK_HELPER_URL || "http://host.docker.internal:4002";
+const INTERNAL_TOKEN = process.env.LINKBOX_INTERNAL_TOKEN;
 const REQUEST_TIMEOUT_MS = 15000;
 
 function requestJson<T>(path: string, method: "GET" | "POST", body?: unknown): Promise<{ status: number; data: T }> {
   return new Promise((resolve, reject) => {
     const payload = body ? JSON.stringify(body) : undefined;
+    const headers: Record<string, string | number> = {};
+    if (payload) {
+      headers["Content-Type"] = "application/json";
+      headers["Content-Length"] = Buffer.byteLength(payload);
+    }
+    if (INTERNAL_TOKEN) headers["X-Internal-Token"] = INTERNAL_TOKEN;
     const req = http.request(
       `${NETWORK_HELPER_URL}${path}`,
       {
         method,
         timeout: REQUEST_TIMEOUT_MS,
-        headers: payload
-          ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }
-          : undefined,
+        headers: Object.keys(headers).length ? headers : undefined,
       },
       (res) => {
         let raw = "";

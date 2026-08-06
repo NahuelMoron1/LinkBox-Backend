@@ -8,6 +8,7 @@ import { Server as SocketServer } from "socket.io";
 // re-emite el progreso por Socket.io, para no cambiar el contrato que ya
 // usa UpdateService.ts en el frontend.
 const UPDATER_URL = process.env.LINKBOX_UPDATER_URL || "http://host.docker.internal:4001";
+const INTERNAL_TOKEN = process.env.LINKBOX_INTERNAL_TOKEN;
 const POLL_INTERVAL_MS = 1000;
 const REQUEST_TIMEOUT_MS = 5000;
 
@@ -22,7 +23,8 @@ interface UpdaterStatus {
 
 function requestJson<T>(path: string, method: "GET" | "POST"): Promise<T> {
   return new Promise((resolve, reject) => {
-    const req = http.request(`${UPDATER_URL}${path}`, { method, timeout: REQUEST_TIMEOUT_MS }, (res) => {
+    const headers = INTERNAL_TOKEN ? { "X-Internal-Token": INTERNAL_TOKEN } : undefined;
+    const req = http.request(`${UPDATER_URL}${path}`, { method, timeout: REQUEST_TIMEOUT_MS, headers }, (res) => {
       let body = "";
       res.on("data", (chunk) => (body += chunk));
       res.on("end", () => {
