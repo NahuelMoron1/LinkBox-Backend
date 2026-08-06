@@ -1,7 +1,5 @@
 {
   "compilerOptions": {
-    "moduleResolution": "node",
-    "ignoreDeprecations": "6.0",
     "rootDir": "./src",
     "types": ["node"],
     /* Visit https://aka.ms/tsconfig to read more about this file */
