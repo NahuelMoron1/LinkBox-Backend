@@ -10,7 +10,7 @@ import { Server as SocketServer } from "socket.io";
 import deviceRouter from "../routes/Device";
 import updateRouter from "../routes/Update";
 import networkRouter from "../routes/Network";
-import { PORT } from "./config";
+import { ALLOWED_ORIGINS, PORT } from "./config";
 
 // En el contenedor Docker el build de Angular se copia a ANGULAR_DIST_PATH (ver Dockerfile);
 // en desarrollo local se sirve directo desde el checkout hermano de LinkBoxApp.
@@ -43,7 +43,7 @@ class Server {
     this.server = http.createServer(this.app);
 
     this.io = new SocketServer(this.server, {
-      cors: { origin: "*", methods: ["GET", "POST"] },
+      cors: { origin: ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS : false, methods: ["GET", "POST"] },
     });
 
     this.middlewares();
@@ -72,7 +72,7 @@ class Server {
   middlewares() {
     this.app.use(express.json({ limit: "16kb" }));
     this.app.use(morgan("dev"));
-    this.app.use(cors({ origin: "*" }));
+    this.app.use(cors({ origin: ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS : false }));
 
     const telemetryLimiter = rateLimit({
       windowMs: 1000,
