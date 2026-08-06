@@ -19,6 +19,25 @@ describe("Server", () => {
     expect(res.body).toEqual({ status: "ok", version: expect.any(String) });
   });
 
+  it("exposes GET /api/device/info with the device id when set", async () => {
+    const originalDeviceId = process.env.LINKBOX_DEVICE_ID;
+    process.env.LINKBOX_DEVICE_ID = "test-device-123";
+    const server = new Server({ listen: false });
+    const res = await request(server.app).get("/api/device/info");
+    process.env.LINKBOX_DEVICE_ID = originalDeviceId;
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ deviceId: "test-device-123", version: expect.any(String) });
+  });
+
+  it("exposes GET /api/device/info with a null deviceId when unset", async () => {
+    const originalDeviceId = process.env.LINKBOX_DEVICE_ID;
+    delete process.env.LINKBOX_DEVICE_ID;
+    const server = new Server({ listen: false });
+    const res = await request(server.app).get("/api/device/info");
+    process.env.LINKBOX_DEVICE_ID = originalDeviceId;
+    expect(res.body.deviceId).toBeNull();
+  });
+
   it("sets the socketio instance on the app", () => {
     const server = new Server({ listen: false });
     expect(server.app.get("socketio")).toBeDefined();

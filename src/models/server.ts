@@ -91,6 +91,13 @@ class Server {
       res.json({ status: "ok", version: readVersion() });
     });
 
+    // Chiquito, sin datos personales — lo usa el badge del dashboard para
+    // identificar la unidad (LINKBOX_DEVICE_ID lo genera setup.sh una sola
+    // vez, ver linkbox-deploy/setup.sh y linkbox-fleet/README.md).
+    this.app.get("/api/device/info", (_req: Request, res: Response) => {
+      res.json({ deviceId: process.env.LINKBOX_DEVICE_ID || null, version: readVersion() });
+    });
+
     this.app.use("/api/devices", deviceRouter);
     this.app.use("/api/update", updateRouter);
     this.app.use("/api/network", networkRouter);
