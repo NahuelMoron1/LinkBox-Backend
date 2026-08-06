@@ -1,8 +1,8 @@
 import bcrypt from "bcrypt";
 import { Request, Response } from "express";
 import jwt from "jsonwebtoken";
-import { DOMAIN, SECRET_JWT_KEY } from "../models/config";
 import { generateCsrfToken } from "../middlewares/verifyCsrf";
+import { DOMAIN, SECRET_JWT_KEY } from "../models/config";
 import { DeviceInfo } from "../models/Device";
 import Device from "../models/mysql/Device";
 import TelemetryData from "../models/mysql/TelemetryData";
@@ -308,9 +308,15 @@ export const saveSession = async (req: Request, res: Response) => {
 
   if (
     sessionName !== undefined &&
-    (typeof sessionName !== "string" || sessionName.trim().length === 0 || sessionName.length > 100)
+    (typeof sessionName !== "string" ||
+      sessionName.trim().length === 0 ||
+      sessionName.length > 100)
   ) {
-    return res.status(400).json({ message: "sessionName must be a non-empty string of max 100 characters" });
+    return res
+      .status(400)
+      .json({
+        message: "sessionName must be a non-empty string of max 100 characters",
+      });
   }
 
   try {
@@ -406,25 +412,26 @@ export const saveSession = async (req: Request, res: Response) => {
  */
 export const renameSession = async (req: Request, res: Response) => {
   const { sessionId } = req.params;
-  const { name }      = req.body;
+  const { name } = req.body;
   const authenticatedId = (req as any).jwtDeviceId;
 
-  if (!name || typeof name !== 'string' || !name.trim()) {
-    return res.status(400).json({ message: 'Session name is required' });
+  if (!name || typeof name !== "string" || !name.trim()) {
+    return res.status(400).json({ message: "Session name is required" });
   }
 
   try {
     const session = await TelemetrySession.findByPk(sessionId);
-    if (!session)
-      return res.status(404).json({ message: 'Session not found' });
-    if (session.getDataValue('device_id') !== authenticatedId)
-      return res.status(403).json({ message: 'Access denied' });
+    if (!session) return res.status(404).json({ message: "Session not found" });
+    if (session.getDataValue("device_id") !== authenticatedId)
+      return res.status(403).json({ message: "Access denied" });
 
     await session.update({ session_name: name.trim() });
-    return res.status(200).json({ message: 'Session renamed', name: name.trim() });
+    return res
+      .status(200)
+      .json({ message: "Session renamed", name: name.trim() });
   } catch (error) {
-    console.error('[RENAME SESSION ERROR]', error);
-    return res.status(500).json({ message: 'Internal server error' });
+    console.error("[RENAME SESSION ERROR]", error);
+    return res.status(500).json({ message: "Internal server error" });
   }
 };
 
