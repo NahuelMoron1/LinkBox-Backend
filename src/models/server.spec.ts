@@ -26,7 +26,25 @@ describe("Server", () => {
     const res = await request(server.app).get("/api/device/info");
     process.env.LINKBOX_DEVICE_ID = originalDeviceId;
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ deviceId: "test-device-123", version: expect.any(String) });
+    expect(res.body).toEqual({
+      deviceId: "test-device-123",
+      version: expect.any(String),
+      shiftRpm: expect.any(Number),
+    });
+  });
+
+  it("exposes shiftRpm from LINKBOX_SHIFT_RPM, defaulting to 6500 when unset", async () => {
+    const original = process.env.LINKBOX_SHIFT_RPM;
+    delete process.env.LINKBOX_SHIFT_RPM;
+    const serverDefault = new Server({ listen: false });
+    const resDefault = await request(serverDefault.app).get("/api/device/info");
+    expect(resDefault.body.shiftRpm).toBe(6500);
+
+    process.env.LINKBOX_SHIFT_RPM = "6200";
+    const serverCustom = new Server({ listen: false });
+    const resCustom = await request(serverCustom.app).get("/api/device/info");
+    process.env.LINKBOX_SHIFT_RPM = original;
+    expect(resCustom.body.shiftRpm).toBe(6200);
   });
 
   it("exposes GET /api/device/info with a null deviceId when unset", async () => {

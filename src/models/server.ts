@@ -94,8 +94,16 @@ class Server {
     // Chiquito, sin datos personales — lo usa el badge del dashboard para
     // identificar la unidad (LINKBOX_DEVICE_ID lo genera setup.sh una sola
     // vez, ver linkbox-deploy/setup.sh y linkbox-fleet/README.md).
+    // shiftRpm: régimen de corte de ESTE auto (cada Pi puede tener un motor
+    // distinto) — el shift light virtual del dashboard y el físico (Nano +
+    // WS2812, ver linkbox-deploy/shiftlight/) leen el mismo LINKBOX_SHIFT_RPM,
+    // así que nunca quedan desincronizados entre sí.
     this.app.get("/api/device/info", (_req: Request, res: Response) => {
-      res.json({ deviceId: process.env.LINKBOX_DEVICE_ID || null, version: readVersion() });
+      res.json({
+        deviceId: process.env.LINKBOX_DEVICE_ID || null,
+        version: readVersion(),
+        shiftRpm: Number(process.env.LINKBOX_SHIFT_RPM) || 6500,
+      });
     });
 
     this.app.use("/api/devices", deviceRouter);
