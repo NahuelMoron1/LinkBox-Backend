@@ -2,6 +2,7 @@ import bcrypt from "bcrypt";
 import { Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import { DOMAIN, SECRET_JWT_KEY } from "../models/config";
+import { generateCsrfToken } from "../middlewares/verifyCsrf";
 import { DeviceInfo } from "../models/Device";
 import Device from "../models/mysql/Device";
 import TelemetryData from "../models/mysql/TelemetryData";
@@ -130,6 +131,17 @@ function createCookies(cookieDevice: any, res: Response) {
     domain: DOMAIN,
     maxAge: 1000 * 60 * 60 * 24,
   });
+
+  // No-httpOnly a propósito: el frontend tiene que poder leerla para mandarla
+  // de vuelta en el header X-CSRF-Token (patrón double-submit, ver verifyCsrf.ts).
+  res.cookie("csrf_token", generateCsrfToken(), {
+    path: "/",
+    httpOnly: false,
+    secure: true,
+    sameSite: "none",
+    domain: DOMAIN,
+    maxAge: 1000 * 60 * 60 * 24,
+  });
 }
 
 export const logout = async (_req: Request, res: Response) => {
@@ -144,6 +156,7 @@ export const logout = async (_req: Request, res: Response) => {
 
   res.clearCookie("access_token", cookieOptions);
   res.clearCookie("refresh_token", cookieOptions);
+  res.clearCookie("csrf_token", { ...cookieOptions, httpOnly: false });
   return res.status(200).json({ message: "Logged out" });
 };
 

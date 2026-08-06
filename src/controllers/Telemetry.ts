@@ -71,6 +71,11 @@ const TELEMETRY_RANGES: Record<string, [number, number]> = {
   gear:       [0, 10],
 };
 
+// ~6s de catch-up a 50Hz por request — suficiente para vaciar rápido un
+// buffer acumulado tras un corte de señal, sin dejar mandar lotes gigantes
+// que se coman la conexión a MySQL de un saque (ver bulkCreate más abajo).
+const MAX_TELEMETRY_BATCH = 300;
+
 /**
  * Sanitises telemetry data in-place:
  * - Fields that are missing/null are kept as-is (null → stored as null).
@@ -97,6 +102,20 @@ const validateTelemetryData = (data: any): { valid: boolean; error?: string } =>
   return { valid: true };
 };
 
+/**
+ * El timestamp real de la muestra lo pone el device (importa para no perder
+ * la resolución de milésimas cuando llega en una ráfaga de catch-up tras un
+ * corte — el momento de inserción en la fila del auto ya no coincide con el
+ * momento en que se guarda en MySQL). Si no viene o es inválido, cae a "ahora"
+ * — mismo comportamiento que tenía este endpoint antes de aceptar lotes.
+ */
+const parseSampleTimestamp = (raw: any): Date => {
+  if (raw === undefined || raw === null) return new Date();
+  const parsed = new Date(raw);
+  if (isNaN(parsed.getTime())) return new Date();
+  return parsed;
+};
+
 const getOrCreateRecordingSession = async (deviceId: string) => {
   // Look for an active recording session first.
   // Use findOrCreate to prevent race conditions when multiple packets
@@ -115,19 +134,38 @@ const getOrCreateRecordingSession = async (deviceId: string) => {
 
 /**
  * POST /api/devices/telemetry
- * Recibe datos de telemetría del device
+ * Recibe datos de telemetría del device. `data` puede ser un objeto (una
+ * muestra, uso normal en vivo) o un array de objetos (lote de catch-up
+ * tras un corte de señal — cada uno con su propio timestamp real).
  * Acción según plan:
  * - BASIC: Solo emitir en vivo (Socket.io)
- * - PRO: Emitir en vivo + permitir guardar manual
- * - ULTIMATE: Emitir en vivo + guardar automático
+ * - PRO: Emitir en vivo (sin guardar automático)
+ * - ULTIMATE: Emitir en vivo + guardar automático (en lote, ver bulkCreate)
  */
 export const postTelemetry = async (req: Request, res: Response) => {
   const { id, password, data } = req.body;
   const now = Date.now();
 
-  const dataValidation = validateTelemetryData(data);
-  if (!dataValidation.valid) {
-    return res.status(400).json({ message: dataValidation.error });
+  if (typeof id !== "string" || typeof password !== "string") {
+    return res.status(400).json({ message: "id and password are required" });
+  }
+
+  const samples: any[] = Array.isArray(data) ? data : [data];
+
+  if (samples.length === 0) {
+    return res.status(400).json({ message: "data must not be empty" });
+  }
+  if (samples.length > MAX_TELEMETRY_BATCH) {
+    return res.status(400).json({
+      message: `data batch too large (max ${MAX_TELEMETRY_BATCH} samples per request)`,
+    });
+  }
+
+  for (const sample of samples) {
+    const sampleValidation = validateTelemetryData(sample);
+    if (!sampleValidation.valid) {
+      return res.status(400).json({ message: sampleValidation.error });
+    }
   }
 
   try {
@@ -190,15 +228,10 @@ export const postTelemetry = async (req: Request, res: Response) => {
     const deviceId = cachedDevice.id;
 
     // 🔴 PLAN BÁSICO: Solo emitir en vivo
-    if (plan === "basic") {
-      io.to(id).emit("liveTelemetry", data);
-      return res.status(200).json({ message: "Telemetry broadcasted" });
-    }
-
     // 💜 PLAN PRO: Emitir en vivo (sin guardar automático)
-    if (plan === "pro") {
-      io.to(id).emit("liveTelemetry", data);
-      return res.status(200).json({ message: "Telemetry broadcasted" });
+    if (plan === "basic" || plan === "pro") {
+      for (const sample of samples) io.to(id).emit("liveTelemetry", sample);
+      return res.status(200).json({ message: "Telemetry broadcasted", count: samples.length });
     }
 
     // 🔵 PLAN ULTIMATE: Emitir en vivo + Guardar automático
@@ -206,29 +239,35 @@ export const postTelemetry = async (req: Request, res: Response) => {
       // Obtener o crear sesión
       const session = await getOrCreateRecordingSession(deviceId);
 
-      // Guardar en BD
-      await TelemetryData.create({
+      // Guardar en BD en un solo viaje — un INSERT por muestra no aguanta
+      // 20-50Hz sostenido con varias Pis en simultáneo. ?? (no ||) porque
+      // 0 es un valor real (ej. gear en punto muerto, oil_press en marcha
+      // en vacío) y no se puede confundir con "no vino el dato".
+      const rows = samples.map((sample) => ({
         session_id: session.getDataValue("id"),
         device_id: deviceId,
-        rpm: data.rpm || null,
-        water_temp: data.water_temp || null,
-        oil_temp: data.oil_temp || null,
-        oil_press: data.oil_press || null,
-        fuel_press: data.fuel_press || null,
-        sonda: data.sonda || null,
-        gear: data.gear || null,
-        timestamp: new Date(),
-      } as any);
+        rpm: sample.rpm ?? null,
+        water_temp: sample.water_temp ?? null,
+        oil_temp: sample.oil_temp ?? null,
+        oil_press: sample.oil_press ?? null,
+        fuel_press: sample.fuel_press ?? null,
+        sonda: sample.sonda ?? null,
+        gear: sample.gear ?? null,
+        timestamp: parseSampleTimestamp(sample.timestamp),
+      }));
 
-      // Incrementar contador
-      await session.increment("total_records");
+      await TelemetryData.bulkCreate(rows as any);
 
-      // Emitir en vivo
-      io.to(id).emit("liveTelemetry", data);
+      // Incrementar contador por la cantidad real de muestras del lote
+      await session.increment("total_records", { by: samples.length } as any);
+
+      // Emitir en vivo, en orden
+      for (const sample of samples) io.to(id).emit("liveTelemetry", sample);
 
       return res.status(200).json({
         message: "Telemetry recorded and broadcasted",
         sessionId: session.getDataValue("id"),
+        count: samples.length,
       });
     }
 
