@@ -5,11 +5,18 @@ import http from "http";
 // ejecuta linkbox-deploy/network/network_helper.py, corriendo en el host
 // como systemd service. Este controller es un proxy delgado, igual que
 // Update.ts. Ver PLAN_LinkBox_Dashboard_Only.md sección 2.
-const NETWORK_HELPER_URL = process.env.LINKBOX_NETWORK_HELPER_URL || "http://host.docker.internal:4002";
+const NETWORK_HELPER_URL =
+  process.env.LINKBOX_NETWORK_HELPER_URL || "http://host.docker.internal:4002";
 const INTERNAL_TOKEN = process.env.LINKBOX_INTERNAL_TOKEN;
 const REQUEST_TIMEOUT_MS = 15000;
 
-function requestJson<T>(path: string, method: "GET" | "POST", body?: unknown): Promise<{ status: number; data: T }> {
+//test
+
+function requestJson<T>(
+  path: string,
+  method: "GET" | "POST",
+  body?: unknown,
+): Promise<{ status: number; data: T }> {
   return new Promise((resolve, reject) => {
     const payload = body ? JSON.stringify(body) : undefined;
     const headers: Record<string, string | number> = {};
@@ -30,15 +37,20 @@ function requestJson<T>(path: string, method: "GET" | "POST", body?: unknown): P
         res.on("data", (chunk) => (raw += chunk));
         res.on("end", () => {
           try {
-            resolve({ status: res.statusCode ?? 500, data: JSON.parse(raw || "{}") as T });
+            resolve({
+              status: res.statusCode ?? 500,
+              data: JSON.parse(raw || "{}") as T,
+            });
           } catch (err) {
             reject(err);
           }
         });
-      }
+      },
     );
     req.on("error", reject);
-    req.on("timeout", () => req.destroy(new Error("network helper request timed out")));
+    req.on("timeout", () =>
+      req.destroy(new Error("network helper request timed out")),
+    );
     if (payload) req.write(payload);
     req.end();
   });
@@ -74,7 +86,10 @@ export async function connect(req: Request, res: Response): Promise<void> {
   }
 
   try {
-    const { status, data } = await requestJson("/connect", "POST", { ssid, password });
+    const { status, data } = await requestJson("/connect", "POST", {
+      ssid,
+      password,
+    });
     res.status(status).json(data);
   } catch {
     res.status(500).json({ message: "No se pudo conectar" });
